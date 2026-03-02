@@ -12,9 +12,8 @@ import (
 type Mapper func(ctx couchbase.Context) []redis.Model
 
 var (
-	collectionKeyMappings *[]config.CollectionKeyMapping
-	mappingCache          = make(map[string]config.CollectionKeyMapping)
-	mappingCacheMu        sync.RWMutex
+	mappingCache   = make(map[string]config.CollectionKeyMapping)
+	mappingCacheMu sync.RWMutex
 )
 
 func SetCollectionKeyMappings(mappings *[]config.CollectionKeyMapping) {
@@ -26,7 +25,6 @@ func SetCollectionKeyMappings(mappings *[]config.CollectionKeyMapping) {
 	mappingCacheMu.Lock()
 	defer mappingCacheMu.Unlock()
 
-	collectionKeyMappings = mappings
 	mappingCache = cache
 }
 

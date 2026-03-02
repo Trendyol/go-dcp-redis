@@ -12,8 +12,14 @@ import (
 
 func TestSetCollectionKeyMappings(t *testing.T) {
 	mappings := []config.CollectionKeyMapping{
-		{Collection: "test", KeyPrefix: "testPrefix", KeySuffix: "testSuffix", StorageType: "string", TTL: 10 * time.Second},
-		{Collection: "test2", KeyPrefix: "testPrefix2", KeySuffix: "testSuffix2", StorageType: "hash", TTL: 20 * time.Second, HashField: "testHashField"},
+		{
+			Collection: "test", KeyPrefix: "testPrefix", KeySuffix: "testSuffix",
+			StorageType: "string", TTL: 10 * time.Second,
+		},
+		{
+			Collection: "test2", KeyPrefix: "testPrefix2", KeySuffix: "testSuffix2",
+			StorageType: "hash", TTL: 20 * time.Second, HashField: "testHashField",
+		},
 	}
 
 	SetCollectionKeyMappings(&mappings)
@@ -60,7 +66,10 @@ func TestSetCollectionKeyMappings(t *testing.T) {
 
 func TestFindCollectionKeyMappingNotFound(t *testing.T) {
 	mappings := []config.CollectionKeyMapping{
-		{Collection: "test", KeyPrefix: "testPrefix", KeySuffix: "testSuffix", StorageType: "string", TTL: 10 * time.Second},
+		{
+			Collection: "test", KeyPrefix: "testPrefix", KeySuffix: "testSuffix",
+			StorageType: "string", TTL: 10 * time.Second,
+		},
 	}
 
 	SetCollectionKeyMappings(&mappings)
@@ -76,9 +85,18 @@ func TestFindCollectionKeyMappingNotFound(t *testing.T) {
 
 func TestFindCollectionKeyMappingConcurrent(t *testing.T) {
 	mappings := []config.CollectionKeyMapping{
-		{Collection: "col1", KeyPrefix: "p1", KeySuffix: "s1", StorageType: "string", TTL: 10 * time.Second},
-		{Collection: "col2", KeyPrefix: "p2", KeySuffix: "s2", StorageType: "string", TTL: 10 * time.Second},
-		{Collection: "col3", KeyPrefix: "p3", KeySuffix: "s3", StorageType: "string", TTL: 10 * time.Second},
+		{
+			Collection: "col1", KeyPrefix: "p1", KeySuffix: "s1",
+			StorageType: "string", TTL: 10 * time.Second,
+		},
+		{
+			Collection: "col2", KeyPrefix: "p2", KeySuffix: "s2",
+			StorageType: "string", TTL: 10 * time.Second,
+		},
+		{
+			Collection: "col3", KeyPrefix: "p3", KeySuffix: "s3",
+			StorageType: "string", TTL: 10 * time.Second,
+		},
 	}
 	SetCollectionKeyMappings(&mappings)
 
@@ -104,9 +122,18 @@ func TestFindCollectionKeyMappingConcurrent(t *testing.T) {
 
 func TestFindCollectionKeyMappingConcurrentWithSet(t *testing.T) {
 	mappings := []config.CollectionKeyMapping{
-		{Collection: "col1", KeyPrefix: "p1", KeySuffix: "s1", StorageType: "string", TTL: 10 * time.Second},
-		{Collection: "col2", KeyPrefix: "p2", KeySuffix: "s2", StorageType: "string", TTL: 10 * time.Second},
-		{Collection: "col3", KeyPrefix: "p3", KeySuffix: "s3", StorageType: "string", TTL: 10 * time.Second},
+		{
+			Collection: "col1", KeyPrefix: "p1", KeySuffix: "s1",
+			StorageType: "string", TTL: 10 * time.Second,
+		},
+		{
+			Collection: "col2", KeyPrefix: "p2", KeySuffix: "s2",
+			StorageType: "string", TTL: 10 * time.Second,
+		},
+		{
+			Collection: "col3", KeyPrefix: "p3", KeySuffix: "s3",
+			StorageType: "string", TTL: 10 * time.Second,
+		},
 	}
 	SetCollectionKeyMappings(&mappings)
 
@@ -135,137 +162,101 @@ func TestFindCollectionKeyMappingConcurrentWithSet(t *testing.T) {
 	wg.Wait()
 }
 
-func TestDefaultMapper(t *testing.T) {
-	mappings := []config.CollectionKeyMapping{
-		{Collection: "test", KeyPrefix: "testPrefix", KeySuffix: "testSuffix", StorageType: "string", TTL: 10 * time.Second},
-		{Collection: "test2", KeyPrefix: "testPrefix2", KeySuffix: "testSuffix2", StorageType: "hash", TTL: 10 * time.Second, HashField: "testHashField"},
-		{Collection: "test3", KeyPrefix: "testPrefix3", KeySuffix: "testSuffix3", StorageType: "json", TTL: 10 * time.Second},
-		{Collection: "test4", KeyPrefix: "testPrefix4", KeySuffix: "testSuffix4", StorageType: "hash", TTL: 10 * time.Second},
-	}
-	SetCollectionKeyMappings(&mappings)
+func TestDefaultMapperMutation(t *testing.T) {
+	setupDefaultMapperMappings()
 
 	tests := []struct {
-		name    string
-		ctx     couchbase.Context
-		wantLen int
-		wantNil bool
+		name       string
+		collection string
 	}{
-		{
-			name: "mutation event returns set command with string storage type",
-			ctx: couchbase.Context{
-				Event: couchbase.Event{
-					CollectionName: "test",
-					Key:            []byte("testKey"),
-					Value:          []byte("testValue"),
-					IsMutated:      true,
-				},
-			},
-			wantLen: 1,
-		},
-		{
-			name: "mutation event returns set command with hash storage type",
-			ctx: couchbase.Context{
-				Event: couchbase.Event{
-					CollectionName: "test2",
-					Key:            []byte("testKey"),
-					Value:          []byte("testValue"),
-					IsMutated:      true,
-				},
-			},
-			wantLen: 1,
-		},
-		{
-			name: "mutation event returns set command with hash storage type without field",
-			ctx: couchbase.Context{
-				Event: couchbase.Event{
-					CollectionName: "test4",
-					Key:            []byte("testKey"),
-					Value:          []byte("testValue"),
-					IsMutated:      true,
-				},
-			},
-			wantLen: 1,
-		},
-		{
-			name: "mutation event returns set command with json storage type",
-			ctx: couchbase.Context{
-				Event: couchbase.Event{
-					CollectionName: "test3",
-					Key:            []byte("testKey"),
-					Value:          []byte("testValue"),
-					IsMutated:      true,
-				},
-			},
-			wantLen: 1,
-		},
-		{
-			name: "deletion event returns delete command with string storage type",
-			ctx: couchbase.Context{
-				Event: couchbase.Event{
-					CollectionName: "test",
-					Key:            []byte("testKey"),
-					IsDeleted:      true,
-				},
-			},
-			wantLen: 1,
-		},
-		{
-			name: "deletion event returns delete command with hash storage type",
-			ctx: couchbase.Context{
-				Event: couchbase.Event{
-					CollectionName: "test2",
-					Key:            []byte("testKey"),
-					IsDeleted:      true,
-				},
-			},
-			wantLen: 1,
-		},
-		{
-			name: "deletion event returns delete command with hash storage type without field",
-			ctx: couchbase.Context{
-				Event: couchbase.Event{
-					CollectionName: "test4",
-					Key:            []byte("testKey"),
-					IsDeleted:      true,
-				},
-			},
-			wantLen: 1,
-		},
-		{
-			name: "deletion event returns delete command with json storage type",
-			ctx: couchbase.Context{
-				Event: couchbase.Event{
-					CollectionName: "test3",
-					Key:            []byte("testKey"),
-					IsDeleted:      true,
-				},
-			},
-			wantLen: 1,
-		},
-		{
-			name: "no flags set returns nil",
-			ctx: couchbase.Context{
-				Event: couchbase.Event{
-					CollectionName: "test",
-					Key:            []byte("testKey"),
-				},
-			},
-			wantNil: true,
-		},
+		{"string storage type", "test"},
+		{"hash storage type", "test2"},
+		{"hash storage type without field", "test4"},
+		{"json storage type", "test3"},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := DefaultMapper(tt.ctx)
-			if tt.wantNil {
-				if got != nil {
-					t.Errorf("expected nil, got %v", got)
-				}
-				return
+			ctx := couchbase.Context{
+				Event: couchbase.Event{
+					CollectionName: tt.collection,
+					Key:            []byte("testKey"),
+					Value:          []byte("testValue"),
+					IsMutated:      true,
+				},
 			}
-			if len(got) != tt.wantLen {
-				t.Errorf("expected %d command(s), got %d", tt.wantLen, len(got))
+			got := DefaultMapper(ctx)
+			if len(got) != 1 {
+				t.Errorf("expected 1 command, got %d", len(got))
 			}
 		})
 	}
+}
+
+func TestDefaultMapperDeletion(t *testing.T) {
+	setupDefaultMapperMappings()
+
+	tests := []struct {
+		name       string
+		collection string
+	}{
+		{"string storage type", "test"},
+		{"hash storage type", "test2"},
+		{"hash storage type without field", "test4"},
+		{"json storage type", "test3"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ctx := couchbase.Context{
+				Event: couchbase.Event{
+					CollectionName: tt.collection,
+					Key:            []byte("testKey"),
+					IsDeleted:      true,
+				},
+			}
+			got := DefaultMapper(ctx)
+			if len(got) != 1 {
+				t.Errorf("expected 1 command, got %d", len(got))
+			}
+		})
+	}
+}
+
+func TestDefaultMapperReturnsNil(t *testing.T) {
+	setupDefaultMapperMappings()
+
+	ctx := couchbase.Context{
+		Event: couchbase.Event{
+			CollectionName: "test",
+			Key:            []byte("testKey"),
+		},
+	}
+	got := DefaultMapper(ctx)
+	if got != nil {
+		t.Errorf("expected nil, got %v", got)
+	}
+}
+
+func setupDefaultMapperMappings() {
+	mappings := []config.CollectionKeyMapping{
+		{
+			Collection: "test", KeyPrefix: "testPrefix",
+			KeySuffix: "testSuffix", StorageType: "string", TTL: 10 * time.Second,
+		},
+		{
+			Collection: "test2", KeyPrefix: "testPrefix2",
+			KeySuffix: "testSuffix2", StorageType: "hash",
+			TTL: 10 * time.Second, HashField: "testHashField",
+		},
+		{
+			Collection: "test3", KeyPrefix: "testPrefix3",
+			KeySuffix: "testSuffix3", StorageType: "json", TTL: 10 * time.Second,
+		},
+		{
+			Collection: "test4", KeyPrefix: "testPrefix4",
+			KeySuffix: "testSuffix4", StorageType: "hash", TTL: 10 * time.Second,
+		},
+	}
+	SetCollectionKeyMappings(&mappings)
 }
