@@ -2,6 +2,7 @@ package dcpredis
 
 import (
 	"fmt"
+	"sync"
 
 	"github.com/Trendyol/go-dcp-redis/config"
 	"github.com/Trendyol/go-dcp-redis/couchbase"
@@ -11,13 +12,20 @@ import (
 type Mapper func(ctx couchbase.Context) []redis.Model
 
 var (
-	collectionKeyMappings *[]config.CollectionKeyMapping
-	mappingCache          = make(map[string]config.CollectionKeyMapping)
+	mappingCache   = make(map[string]config.CollectionKeyMapping)
+	mappingCacheMu sync.RWMutex
 )
 
 func SetCollectionKeyMappings(mappings *[]config.CollectionKeyMapping) {
-	collectionKeyMappings = mappings
-	mappingCache = make(map[string]config.CollectionKeyMapping)
+	cache := make(map[string]config.CollectionKeyMapping)
+	for _, mapping := range *mappings {
+		cache[mapping.Collection] = mapping
+	}
+
+	mappingCacheMu.Lock()
+	defer mappingCacheMu.Unlock()
+
+	mappingCache = cache
 }
 
 func DefaultMapper(ctx couchbase.Context) []redis.Model {
@@ -36,15 +44,11 @@ func DefaultMapper(ctx couchbase.Context) []redis.Model {
 }
 
 func findCollectionKeyMapping(collectionName string) config.CollectionKeyMapping {
+	mappingCacheMu.RLock()
+	defer mappingCacheMu.RUnlock()
+
 	if mapping, exists := mappingCache[collectionName]; exists {
 		return mapping
-	}
-
-	for _, mapping := range *collectionKeyMappings {
-		if mapping.Collection == collectionName {
-			mappingCache[collectionName] = mapping
-			return mapping
-		}
 	}
 
 	panic(fmt.Sprintf("no mapping found for collection: %s", collectionName))
