@@ -12,6 +12,8 @@ import (
 type RedisClient interface {
 	redis.Cmdable
 	Close() error
+	Do(ctx context.Context, args ...interface{}) *redis.Cmd
+	Process(ctx context.Context, cmd redis.Cmder) error
 }
 
 // clientWrapper wraps a *redis.Client to implement RedisClient
@@ -23,6 +25,14 @@ func (c *clientWrapper) Close() error {
 	return c.Client.Close()
 }
 
+func (c *clientWrapper) Do(ctx context.Context, args ...interface{}) *redis.Cmd {
+	return c.Client.Do(ctx, args...)
+}
+
+func (c *clientWrapper) Process(ctx context.Context, cmd redis.Cmder) error {
+	return c.Client.Process(ctx, cmd)
+}
+
 // clusterWrapper wraps a *redis.ClusterClient to implement RedisClient
 type clusterWrapper struct {
 	*redis.ClusterClient
@@ -30,6 +40,14 @@ type clusterWrapper struct {
 
 func (c *clusterWrapper) Close() error {
 	return c.ClusterClient.Close()
+}
+
+func (c *clusterWrapper) Do(ctx context.Context, args ...interface{}) *redis.Cmd {
+	return c.ClusterClient.Do(ctx, args...)
+}
+
+func (c *clusterWrapper) Process(ctx context.Context, cmd redis.Cmder) error {
+	return c.ClusterClient.Process(ctx, cmd)
 }
 
 func NewRedisClient(cfg config.Redis) (RedisClient, error) {

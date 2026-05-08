@@ -122,6 +122,12 @@ func (b *Bulk) executeCommand(cmd *redis.Command) error {
 			err := b.redisClient.HDel(b.ctx, cmd.Key, cmd.Args[0].(string)).Err()
 			return err
 		}
+	default:
+		args := make([]interface{}, 0)
+		args = append(args, cmd.Operation)
+		args = append(args, cmd.Key)
+		args = append(args, cmd.Args...)
+		return b.redisClient.Do(b.ctx, args...).Err()
 	}
 	return nil
 }
