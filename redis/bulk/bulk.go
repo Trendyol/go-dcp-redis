@@ -2,6 +2,7 @@ package bulk
 
 import (
 	"context"
+	"fmt"
 	"sync"
 	"time"
 
@@ -14,6 +15,8 @@ import (
 
 type Bulk struct {
 	redisClient         client.RedisClient
+	instanceClients     map[string]client.RedisClient
+	collectionClients   map[string]client.RedisClient
 	dcpCheckpointCommit func()
 	batchTicker         *time.Ticker
 	metric              *Metric
@@ -32,8 +35,16 @@ func NewBulk(
 		return nil, err
 	}
 
+	instanceClients, err := newInstanceClients(cfg.Redis.Instances)
+	if err != nil {
+		c.Close()
+		return nil, err
+	}
+
 	b := Bulk{
 		redisClient:         c,
+		instanceClients:     instanceClients,
+		collectionClients:   buildCollectionClients(cfg.Redis.CollectionKeyMapping, instanceClients),
 		dcpCheckpointCommit: dcpCheckpointCommit,
 		batchTickerDuration: cfg.Redis.BatchTickerDuration,
 		batchTicker:         time.NewTicker(cfg.Redis.BatchTickerDuration),
@@ -41,6 +52,38 @@ func NewBulk(
 		ctx:                 context.Background(),
 	}
 	return &b, nil
+}
+
+func newInstanceClients(instances map[string]config.RedisInstance) (map[string]client.RedisClient, error) {
+	clients := make(map[string]client.RedisClient, len(instances))
+	for name, instance := range instances {
+		c, err := client.NewInstanceClient(instance)
+		if err != nil {
+			for _, opened := range clients {
+				opened.Close()
+			}
+			return nil, fmt.Errorf("redis instance %q: %w", name, err)
+		}
+		clients[name] = c
+	}
+	return clients, nil
+}
+
+// buildCollectionClients maps targeted collections to their instance clients.
+func buildCollectionClients(
+	mappings []config.CollectionKeyMapping,
+	instanceClients map[string]client.RedisClient,
+) map[string]client.RedisClient {
+	clients := make(map[string]client.RedisClient)
+	for _, mapping := range mappings {
+		if mapping.Target == "" {
+			continue
+		}
+		if c, ok := instanceClients[mapping.Target]; ok {
+			clients[mapping.Collection] = c
+		}
+	}
+	return clients
 }
 
 type Metric struct {
@@ -67,9 +110,12 @@ func (b *Bulk) Close() {
 	if b.redisClient != nil {
 		b.redisClient.Close()
 	}
+	for _, c := range b.instanceClients {
+		c.Close()
+	}
 }
 
-func (b *Bulk) AddActions(ctx *models.ListenerContext, eventTime time.Time, actions []redis.Model) {
+func (b *Bulk) AddActions(ctx *models.ListenerContext, eventTime time.Time, collectionName string, actions []redis.Model) {
 	b.flushLock.Lock()
 	if b.isDcpRebalancing {
 		logger.Log.Warn("could not add new message to batch while rebalancing")
@@ -78,10 +124,10 @@ func (b *Bulk) AddActions(ctx *models.ListenerContext, eventTime time.Time, acti
 	}
 	b.flushLock.Unlock()
 	b.metric.ProcessLatencyMs = time.Since(eventTime).Milliseconds()
-	b.flush(ctx, actions)
+	b.flush(ctx, b.GetRedisClientByCollection(collectionName), actions)
 }
 
-func (b *Bulk) flush(ctx *models.ListenerContext, models []redis.Model) {
+func (b *Bulk) flush(ctx *models.ListenerContext, c client.RedisClient, models []redis.Model) {
 	b.flushLock.Lock()
 	defer b.flushLock.Unlock()
 	if b.isDcpRebalancing {
@@ -91,7 +137,7 @@ func (b *Bulk) flush(ctx *models.ListenerContext, models []redis.Model) {
 	startedTime := time.Now()
 	for _, model := range models {
 		command := model.Convert()
-		err := b.executeCommand(command)
+		err := b.executeCommand(c, command)
 		if err != nil {
 			logger.Log.Error("error while redis exec, err: %v", err)
 			panic(err)
@@ -101,25 +147,25 @@ func (b *Bulk) flush(ctx *models.ListenerContext, models []redis.Model) {
 	ctx.Ack()
 }
 
-func (b *Bulk) executeCommand(cmd *redis.Command) error {
+func (b *Bulk) executeCommand(c client.RedisClient, cmd *redis.Command) error {
 	switch cmd.Operation {
 	case "SET":
-		err := b.redisClient.Set(b.ctx, cmd.Key, cmd.Value, cmd.TTL).Err()
+		err := c.Set(b.ctx, cmd.Key, cmd.Value, cmd.TTL).Err()
 		return err
 	case "DEL":
-		err := b.redisClient.Del(b.ctx, cmd.Key).Err()
+		err := c.Del(b.ctx, cmd.Key).Err()
 		return err
 	case "HSET":
 		if len(cmd.Args) >= 2 {
-			err := b.redisClient.HSet(b.ctx, cmd.Key, cmd.Args[0], cmd.Args[1]).Err()
+			err := c.HSet(b.ctx, cmd.Key, cmd.Args[0], cmd.Args[1]).Err()
 			if err == nil && cmd.TTL > 0 {
-				b.redisClient.Expire(b.ctx, cmd.Key, cmd.TTL)
+				c.Expire(b.ctx, cmd.Key, cmd.TTL)
 			}
 			return err
 		}
 	case "HDEL":
 		if len(cmd.Args) >= 1 {
-			err := b.redisClient.HDel(b.ctx, cmd.Key, cmd.Args[0].(string)).Err()
+			err := c.HDel(b.ctx, cmd.Key, cmd.Args[0].(string)).Err()
 			return err
 		}
 	default:
@@ -127,7 +173,7 @@ func (b *Bulk) executeCommand(cmd *redis.Command) error {
 		args = append(args, cmd.Operation)
 		args = append(args, cmd.Key)
 		args = append(args, cmd.Args...)
-		return b.redisClient.Do(b.ctx, args...).Err()
+		return c.Do(b.ctx, args...).Err()
 	}
 	return nil
 }
@@ -147,5 +193,13 @@ func (b *Bulk) PrepareEndRebalancing() {
 }
 
 func (b *Bulk) GetRedisClient() client.RedisClient {
+	return b.redisClient
+}
+
+// GetRedisClientByCollection returns the collection's target client, or the default one.
+func (b *Bulk) GetRedisClientByCollection(collectionName string) client.RedisClient {
+	if c, ok := b.collectionClients[collectionName]; ok {
+		return c
+	}
 	return b.redisClient
 }
