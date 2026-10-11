@@ -76,3 +76,20 @@ func testRedisConnection(t *testing.T, configFile string, redisConfig config.Red
 		}
 	}
 }
+
+func assertNoKeys(t *testing.T, redisConfig config.Redis, pattern string) {
+	redisClient, err := client.NewRedisClient(redisConfig)
+	if err != nil {
+		t.Fatalf("could not open connection to redis %s", err)
+	}
+	defer redisClient.Close()
+
+	keys, err := redisClient.Keys(context.Background(), pattern).Result()
+	if err != nil {
+		t.Fatalf("redis query error %s", err)
+	}
+
+	if len(keys) != 0 {
+		t.Fatalf("expected no %q keys, found %d", pattern, len(keys))
+	}
+}
