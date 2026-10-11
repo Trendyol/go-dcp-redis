@@ -50,7 +50,13 @@ func (c *clusterWrapper) Process(ctx context.Context, cmd redis.Cmder) error {
 	return c.ClusterClient.Process(ctx, cmd)
 }
 
+// NewRedisClient connects to the default (top-level) Redis.
 func NewRedisClient(cfg config.Redis) (RedisClient, error) {
+	return NewInstanceClient(cfg.DefaultInstance())
+}
+
+// NewInstanceClient connects to one Redis instance.
+func NewInstanceClient(cfg config.RedisInstance) (RedisClient, error) {
 	var client RedisClient
 
 	// Check configuration type
@@ -73,7 +79,7 @@ func NewRedisClient(cfg config.Redis) (RedisClient, error) {
 	return client, nil
 }
 
-func newStandaloneClient(cfg config.Redis) RedisClient {
+func newStandaloneClient(cfg config.RedisInstance) RedisClient {
 	options := &redis.Options{
 		Addr:     fmt.Sprintf("%s:%d", cfg.Host, cfg.Port),
 		Password: cfg.Password,
@@ -87,7 +93,7 @@ func newStandaloneClient(cfg config.Redis) RedisClient {
 	return &clientWrapper{redis.NewClient(options)}
 }
 
-func newSentinelClient(cfg config.Redis) RedisClient {
+func newSentinelClient(cfg config.RedisInstance) RedisClient {
 	options := &redis.FailoverOptions{
 		MasterName:    cfg.Sentinel.MasterName,
 		SentinelAddrs: cfg.Sentinel.SentinelAddrs,
@@ -110,7 +116,7 @@ func newSentinelClient(cfg config.Redis) RedisClient {
 	return &clientWrapper{redis.NewFailoverClient(options)}
 }
 
-func newClusterClient(cfg config.Redis) RedisClient {
+func newClusterClient(cfg config.RedisInstance) RedisClient {
 	options := &redis.ClusterOptions{
 		Addrs: cfg.Cluster.Addrs,
 	}
