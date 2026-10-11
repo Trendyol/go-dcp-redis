@@ -12,6 +12,7 @@ Redis in near real-time.
 - **Multiple storage types** (string, hash, json) with TTL support.
 - **Redis Sentinel support** for high availability deployments.
 - **Redis Cluster support** for horizontal scaling and high availability.
+- **Multiple Redis instances**: route each collection to a different Redis (standalone, Sentinel or Cluster) from config.
 - **Scale up and down** by custom membership algorithms(Couchbase, KubernetesHa, Kubernetes StatefulSet or
   Static, see [examples](https://github.com/Trendyol/go-dcp#examples)).
 - **Easily manageable configurations**.
@@ -153,6 +154,55 @@ redis:
     readOnly: false
 ```
 
+### Multiple Redis Instances Configuration
+
+The top-level `redis` block is the default instance. Additional named instances go under `redis.instances`, and a collection is routed to one of them with `collectionKeyMapping[].target`. Collections without a `target` keep writing to the default instance.
+
+```yaml
+redis:
+  host: localhost            # default instance
+  port: 6379
+  instances:
+    cache-eu:
+      host: redis-eu
+      port: 6379
+      username: eu-user
+      password: eu-pass
+    cache-cluster:
+      cluster:
+        addrs:
+          - redis-c-1:7000
+          - redis-c-2:7001
+        password: cluster-pass
+  collectionKeyMapping:
+    - collection: products
+      keyPrefix: "product:"
+      target: cache-eu       # -> cache-eu
+    - collection: orders
+      keyPrefix: "order:"
+      target: cache-cluster  # -> cache-cluster
+    - collection: users
+      keyPrefix: "user:"     # no target -> default instance
+```
+
+Each instance uses only its own credentials; nothing is inherited from the default instance. An unknown `target`, or an instance without `host`, `sentinel` or `cluster`, fails at startup, before any connection is opened.
+
+Routing also applies to custom mappers: add a mapping entry with just `collection` and `target`, and `event.RedisClient` inside the mapper is the client of that instance.
+
+To keep passwords out of the YAML file, load the config yourself and fill them in before building the connector:
+
+```go
+file, _ := os.ReadFile("config.yml")
+var cfg config.Connector
+_ = yaml.Unmarshal(file, &cfg)
+
+instance := cfg.Redis.Instances["cache-eu"]
+instance.Password = os.Getenv("CACHE_EU_PASSWORD")
+cfg.Redis.Instances["cache-eu"] = instance
+
+connector, err := dcpredis.NewConnectorBuilder(&cfg).Build()
+```
+
 ### Dcp Configuration
 
 Check out on [go-dcp](https://github.com/Trendyol/go-dcp#configuration)
@@ -171,6 +221,21 @@ Check out on [go-dcp](https://github.com/Trendyol/go-dcp#configuration)
 | `redis.collectionKeyMapping` | []CollectionKeyMapping | no       |         | Will be used for default mapper. Please read the next topic.                                       |
 | `redis.sentinel`             | RedisSentinel          | no       |         | Redis Sentinel configuration for high availability                                                 |
 | `redis.cluster`              | RedisCluster           | no       |         | Redis Cluster configuration for horizontal scaling                                                 |
+| `redis.instances`            | map[string]RedisInstance | no     |         | Additional named Redis instances. Please read the Multiple Redis Instances topic.                  |
+
+### Redis Instance Configuration
+
+Every entry under `redis.instances.<name>` accepts the same connection fields as the top-level `redis` block.
+
+| Variable                           | Type          | Required | Default | Description                                            |
+| ---------------------------------- | ------------- | -------- | ------- | ------------------------------------------------------ |
+| `redis.instances.<name>.host`      | string        | yes\*    |         | Redis host (\*required if not using Sentinel/Cluster)  |
+| `redis.instances.<name>.port`      | int           | no       | 6379    | Redis port                                             |
+| `redis.instances.<name>.username`  | string        | no       |         | Redis username (Redis 6.0+)                            |
+| `redis.instances.<name>.password`  | string        | no       |         | Redis password                                         |
+| `redis.instances.<name>.db`        | int           | no       | 0       | Redis database number                                  |
+| `redis.instances.<name>.sentinel`  | RedisSentinel | no       |         | Sentinel configuration, same fields as `redis.sentinel` |
+| `redis.instances.<name>.cluster`   | RedisCluster  | no       |         | Cluster configuration, same fields as `redis.cluster`   |
 
 ### Redis Sentinel Configuration
 
@@ -194,16 +259,17 @@ Check out on [go-dcp](https://github.com/Trendyol/go-dcp#configuration)
 
 ### Collection Key Mapping Configuration
 
-Collection key mapping configuration is optional. This configuration should only be provided if you are using the default mapper. If you are implementing your own custom mapper function, this configuration is not needed.
+Collection key mapping configuration is optional. The default mapper needs an entry for every collection it handles. With a custom mapper function only `target` is used, so you need entries only for collections you want routed to another Redis instance; the remaining fields are ignored.
 
-| Variable                                   | Type          | Required | Default | Description                             |
-| ------------------------------------------ | ------------- | -------- | ------- | --------------------------------------- |
-| `redis.collectionKeyMapping[].collection`  | string        | yes      |         | Couchbase collection name               |
-| `redis.collectionKeyMapping[].keyPrefix`   | string        | no       |         | Prefix to add to Redis keys             |
-| `redis.collectionKeyMapping[].keySuffix`   | string        | no       |         | Suffix to add to Redis keys             |
-| `redis.collectionKeyMapping[].storageType` | string        | no       | string  | Storage type: "string", "hash", "json"  |
-| `redis.collectionKeyMapping[].ttl`         | time.Duration | no       |         | TTL for this collection's keys          |
-| `redis.collectionKeyMapping[].hashField`   | string        | no       | value   | Field name when using hash storage type |
+| Variable                                   | Type          | Required | Default | Description                                                      |
+| ------------------------------------------ | ------------- | -------- | ------- | ---------------------------------------------------------------- |
+| `redis.collectionKeyMapping[].collection`  | string        | yes      |         | Couchbase collection name                                        |
+| `redis.collectionKeyMapping[].keyPrefix`   | string        | no       |         | Prefix to add to Redis keys                                      |
+| `redis.collectionKeyMapping[].keySuffix`   | string        | no       |         | Suffix to add to Redis keys                                      |
+| `redis.collectionKeyMapping[].storageType` | string        | no       | string  | Storage type: "string", "hash", "json"                           |
+| `redis.collectionKeyMapping[].ttl`         | time.Duration | no       |         | TTL for this collection's keys                                   |
+| `redis.collectionKeyMapping[].hashField`   | string        | no       | value   | Field name when using hash storage type                          |
+| `redis.collectionKeyMapping[].target`      | string        | no       |         | Name of a `redis.instances` entry; empty writes to the default Redis |
 
 ## Exposed metrics
 

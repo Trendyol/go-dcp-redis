@@ -57,12 +57,10 @@ func (c *connector) listener(ctx *models.ListenerContext) {
 	listenerTrace := ctx.ListenerTracerComponent.InitializeListenerTrace("Listen", nil)
 	defer listenerTrace.Finish()
 
-	// Get redis client
-	redisClient := c.bulk.GetRedisClient()
-
 	var e couchbase.Context
 	switch event := ctx.Event.(type) {
 	case models.DcpMutation:
+		redisClient := c.bulk.GetRedisClientByCollection(event.CollectionName)
 		params := couchbase.EventParams{
 			Key:            event.Key,
 			Value:          event.Value,
@@ -73,6 +71,7 @@ func (c *connector) listener(ctx *models.ListenerContext) {
 		}
 		e = couchbase.NewMutateEventContext(listenerTrace, redisClient, params)
 	case models.DcpExpiration:
+		redisClient := c.bulk.GetRedisClientByCollection(event.CollectionName)
 		params := couchbase.EventParams{
 			Key:            event.Key,
 			Value:          nil,
@@ -83,6 +82,7 @@ func (c *connector) listener(ctx *models.ListenerContext) {
 		}
 		e = couchbase.NewExpireEventContext(listenerTrace, redisClient, params)
 	case models.DcpDeletion:
+		redisClient := c.bulk.GetRedisClientByCollection(event.CollectionName)
 		params := couchbase.EventParams{
 			Key:            event.Key,
 			Value:          nil,
@@ -103,7 +103,7 @@ func (c *connector) listener(ctx *models.ListenerContext) {
 		return
 	}
 
-	c.bulk.AddActions(ctx, e.Event.EventTime, actions)
+	c.bulk.AddActions(ctx, e.Event.EventTime, e.Event.CollectionName, actions)
 }
 
 type ConnectorBuilder struct {
@@ -143,6 +143,9 @@ func newConnector(cf any, mapper Mapper) (Connector, error) {
 		return nil, err
 	}
 	cfg.ApplyDefaults()
+	if err = cfg.Redis.Validate(); err != nil {
+		return nil, err
+	}
 
 	connector := &connector{
 		mapper: mapper,
@@ -205,9 +208,21 @@ func (c ConnectorBuilder) SetLogger(logrus *logrus.Logger) ConnectorBuilder {
 	return c
 }
 
-func printConfiguration(config config.Redis) {
-	config.Password = "*****"
-	configJSON, _ := jsoniter.Marshal(config)
+func printConfiguration(cfg config.Redis) {
+	masked := maskInstance(cfg.DefaultInstance())
+	cfg.Password = masked.Password
+	cfg.Sentinel = masked.Sentinel
+	cfg.Cluster = masked.Cluster
+
+	if cfg.Instances != nil {
+		instances := make(map[string]config.RedisInstance, len(cfg.Instances))
+		for name, instance := range cfg.Instances {
+			instances[name] = maskInstance(instance)
+		}
+		cfg.Instances = instances
+	}
+
+	configJSON, _ := jsoniter.Marshal(cfg)
 
 	dst := &bytes.Buffer{}
 	if err := json.Compact(dst, configJSON); err != nil {
@@ -216,4 +231,25 @@ func printConfiguration(config config.Redis) {
 	}
 
 	logger.Log.Info("using redis config: %v", dst.String())
+}
+
+const maskedPassword = "*****"
+
+// maskInstance returns a copy with passwords masked, leaving the original untouched.
+func maskInstance(instance config.RedisInstance) config.RedisInstance {
+	instance.Password = maskedPassword
+
+	if instance.Sentinel != nil {
+		sentinel := *instance.Sentinel
+		sentinel.Password = maskedPassword
+		instance.Sentinel = &sentinel
+	}
+
+	if instance.Cluster != nil {
+		cluster := *instance.Cluster
+		cluster.Password = maskedPassword
+		instance.Cluster = &cluster
+	}
+
+	return instance
 }

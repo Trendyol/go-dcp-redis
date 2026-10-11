@@ -73,6 +73,110 @@ func TestConnector_ApplyDefaults(t *testing.T) {
 	}
 }
 
+func TestRedisInstancesApplyDefaults(t *testing.T) {
+	cfg := Connector{Redis: Redis{
+		Instances: map[string]RedisInstance{
+			"eu": {Host: "redis-eu"},
+			"us": {Host: "redis-us", Port: 6380},
+		},
+	}}
+
+	cfg.ApplyDefaults()
+
+	if got := cfg.Redis.Instances["eu"].Port; got != 6379 {
+		t.Errorf("eu Port = %d, want 6379", got)
+	}
+	if got := cfg.Redis.Instances["us"].Port; got != 6380 {
+		t.Errorf("us Port = %d, want 6380", got)
+	}
+}
+
+func TestRedisDefaultInstance(t *testing.T) {
+	sentinel := &RedisSentinel{MasterName: "mymaster"}
+	cfg := Redis{
+		Host:     "localhost",
+		Port:     6380,
+		Username: "user",
+		Password: "pass",
+		DB:       2,
+		Sentinel: sentinel,
+	}
+
+	got := cfg.DefaultInstance()
+
+	want := RedisInstance{Host: "localhost", Port: 6380, Username: "user", Password: "pass", DB: 2, Sentinel: sentinel}
+	if got != want {
+		t.Errorf("DefaultInstance() = %+v, want %+v", got, want)
+	}
+}
+
+func TestRedisValidate(t *testing.T) {
+	instances := map[string]RedisInstance{"eu": {Host: "redis-eu"}}
+
+	tests := []struct {
+		name    string
+		redis   Redis
+		wantErr string
+	}{
+		{
+			name:  "no targets",
+			redis: Redis{CollectionKeyMapping: []CollectionKeyMapping{{Collection: "users"}}},
+		},
+		{
+			name: "known target",
+			redis: Redis{
+				Instances:            instances,
+				CollectionKeyMapping: []CollectionKeyMapping{{Collection: "users", Target: "eu"}},
+			},
+		},
+		{
+			name: "unknown target",
+			redis: Redis{
+				Instances:            instances,
+				CollectionKeyMapping: []CollectionKeyMapping{{Collection: "users", Target: "us"}},
+			},
+			wantErr: `collection "users": unknown redis target "us"`,
+		},
+		{
+			name:    "target without instances",
+			redis:   Redis{CollectionKeyMapping: []CollectionKeyMapping{{Collection: "users", Target: "eu"}}},
+			wantErr: `collection "users": unknown redis target "eu"`,
+		},
+		{
+			name:    "instance without address",
+			redis:   Redis{Instances: map[string]RedisInstance{"eu": {Port: 6379}}},
+			wantErr: `redis instance "eu": host, sentinel or cluster is required`,
+		},
+		{
+			name: "sentinel instance",
+			redis: Redis{Instances: map[string]RedisInstance{
+				"eu": {Sentinel: &RedisSentinel{MasterName: "mymaster", SentinelAddrs: []string{"sentinel:26379"}}},
+			}},
+		},
+		{
+			name: "cluster instance",
+			redis: Redis{Instances: map[string]RedisInstance{
+				"eu": {Cluster: &RedisCluster{Addrs: []string{"node:7000"}}},
+			}},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := tt.redis.Validate()
+			if tt.wantErr == "" {
+				if err != nil {
+					t.Fatalf("Validate() = %v, want nil", err)
+				}
+				return
+			}
+			if err == nil || err.Error() != tt.wantErr {
+				t.Fatalf("Validate() = %v, want %q", err, tt.wantErr)
+			}
+		})
+	}
+}
+
 func TestRedisClusterConfig(t *testing.T) {
 	t.Run("cluster config with addrs", func(t *testing.T) {
 		cfg := Redis{

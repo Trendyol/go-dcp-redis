@@ -1,0 +1,34 @@
+hosts:
+  - localhost:8091
+username: user
+password: 123456
+bucketName: dcp-test
+logging:
+  level: info
+dcp:
+  group:
+    name: groupName
+redis:
+  host: localhost
+  port: 6379
+  password: ""
+  db: 0
+  instances:
+    secondary:
+      host: localhost
+      port: 6380
+      password: ""
+      db: 0
+  collectionKeyMapping:
+    - collection: _default
+      keyPrefix: "doc:"
+      keySuffix: ""
+      storageType: "string"
+      ttl: 24h
+    - collection: users
+      keyPrefix: "user:"
+      keySuffix: ""
+      storageType: "hash"
+      hashField: "data"
+      ttl: 48h
+      target: secondary
