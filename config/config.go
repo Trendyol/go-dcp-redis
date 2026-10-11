@@ -45,8 +45,13 @@ func (r *Redis) DefaultInstance() RedisInstance {
 	}
 }
 
-// Validate checks that every collection target refers to a defined instance.
+// Validate checks that instances have an address and collection targets refer to defined instances.
 func (r *Redis) Validate() error {
+	for name, instance := range r.Instances {
+		if !instance.hasAddress() {
+			return fmt.Errorf("redis instance %q: host, sentinel or cluster is required", name)
+		}
+	}
 	for _, mapping := range r.CollectionKeyMapping {
 		if mapping.Target == "" {
 			continue
@@ -56,6 +61,12 @@ func (r *Redis) Validate() error {
 		}
 	}
 	return nil
+}
+
+func (i RedisInstance) hasAddress() bool {
+	return i.Host != "" ||
+		(i.Sentinel != nil && len(i.Sentinel.SentinelAddrs) > 0) ||
+		(i.Cluster != nil && len(i.Cluster.Addrs) > 0)
 }
 
 type RedisSentinel struct {

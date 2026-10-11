@@ -30,6 +30,10 @@ func NewBulk(
 	cfg *config.Connector,
 	dcpCheckpointCommit func(),
 ) (*Bulk, error) {
+	if err := cfg.Redis.Validate(); err != nil {
+		return nil, err
+	}
+
 	c, err := client.NewRedisClient(cfg.Redis)
 	if err != nil {
 		return nil, err

@@ -54,6 +54,17 @@ func TestGetRedisClientByCollection(t *testing.T) {
 	}
 }
 
+func TestNewBulkRejectsUnknownTarget(t *testing.T) {
+	cfg := &config.Connector{Redis: config.Redis{
+		CollectionKeyMapping: []config.CollectionKeyMapping{{Collection: "products", Target: "nope"}},
+	}}
+
+	_, err := NewBulk(cfg, nil)
+	if err == nil || !strings.Contains(err.Error(), `unknown redis target "nope"`) {
+		t.Fatalf("err = %v, want unknown target error", err)
+	}
+}
+
 func TestNewInstanceClientsEmpty(t *testing.T) {
 	clients, err := newInstanceClients(nil)
 	if err != nil {

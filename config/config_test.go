@@ -142,6 +142,23 @@ func TestRedisValidate(t *testing.T) {
 			redis:   Redis{CollectionKeyMapping: []CollectionKeyMapping{{Collection: "users", Target: "eu"}}},
 			wantErr: `collection "users": unknown redis target "eu"`,
 		},
+		{
+			name:    "instance without address",
+			redis:   Redis{Instances: map[string]RedisInstance{"eu": {Port: 6379}}},
+			wantErr: `redis instance "eu": host, sentinel or cluster is required`,
+		},
+		{
+			name: "sentinel instance",
+			redis: Redis{Instances: map[string]RedisInstance{
+				"eu": {Sentinel: &RedisSentinel{MasterName: "mymaster", SentinelAddrs: []string{"sentinel:26379"}}},
+			}},
+		},
+		{
+			name: "cluster instance",
+			redis: Redis{Instances: map[string]RedisInstance{
+				"eu": {Cluster: &RedisCluster{Addrs: []string{"node:7000"}}},
+			}},
+		},
 	}
 
 	for _, tt := range tests {

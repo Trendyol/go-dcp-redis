@@ -185,7 +185,7 @@ redis:
       keyPrefix: "user:"     # no target -> default instance
 ```
 
-Each instance uses only its own credentials; nothing is inherited from the default instance. An unknown `target` fails at startup, before any connection is opened.
+Each instance uses only its own credentials; nothing is inherited from the default instance. An unknown `target`, or an instance without `host`, `sentinel` or `cluster`, fails at startup, before any connection is opened.
 
 Routing also applies to custom mappers: add a mapping entry with just `collection` and `target`, and `event.RedisClient` inside the mapper is the client of that instance.
 
