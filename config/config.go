@@ -5,6 +5,14 @@ import (
 	"time"
 
 	"github.com/Trendyol/go-dcp/config"
+	"github.com/Trendyol/go-dcp/helpers"
+)
+
+const (
+	DefaultBatchTickerDuration = 10 * time.Second
+	DefaultBatchSizeLimit      = 1000
+	DefaultBatchByteSizeLimit  = 10 * 1024 * 1024
+	DefaultMaxRetries          = 10
 )
 
 type Redis struct {
@@ -19,6 +27,26 @@ type Redis struct {
 	Sentinel             *RedisSentinel           `yaml:"sentinel,omitempty"`
 	Cluster              *RedisCluster            `yaml:"cluster,omitempty"`
 	Instances            map[string]RedisInstance `yaml:"instances,omitempty"`
+	// BatchSizeLimit is the maximum number of commands sent to Redis in one pipeline.
+	BatchSizeLimit int `yaml:"batchSizeLimit"`
+	// BatchByteSizeLimit is the maximum estimated payload of one pipeline. It accepts a byte
+	// count (10485760) or a size string ("10mb").
+	BatchByteSizeLimit any `yaml:"batchByteSizeLimit"`
+	// MaxRetries is how many times a command that failed with a transient error (OOM, BUSY,
+	// LOADING, TRYAGAIN, CLUSTERDOWN, MASTERDOWN, READONLY or a network error) is retried
+	// before the connector gives up. A negative value disables retries.
+	MaxRetries int `yaml:"maxRetries"`
+}
+
+// BatchByteSizeLimitBytes returns BatchByteSizeLimit in bytes, falling back to the default.
+func (r *Redis) BatchByteSizeLimitBytes() int {
+	if r.BatchByteSizeLimit == nil {
+		return DefaultBatchByteSizeLimit
+	}
+	if v := helpers.ResolveUnionIntOrStringValue(r.BatchByteSizeLimit); v > 0 {
+		return v
+	}
+	return DefaultBatchByteSizeLimit
 }
 
 // RedisInstance is the connection config of one Redis (standalone, sentinel or cluster).
@@ -105,8 +133,20 @@ func (c *Connector) ApplyDefaults() {
 		c.Redis.Port = 6379
 	}
 
-	if c.Redis.BatchTickerDuration == 0 {
-		c.Redis.BatchTickerDuration = 10 * time.Second
+	if c.Redis.BatchTickerDuration <= 0 {
+		c.Redis.BatchTickerDuration = DefaultBatchTickerDuration
+	}
+
+	if c.Redis.BatchSizeLimit <= 0 {
+		c.Redis.BatchSizeLimit = DefaultBatchSizeLimit
+	}
+
+	if c.Redis.BatchByteSizeLimit == nil {
+		c.Redis.BatchByteSizeLimit = DefaultBatchByteSizeLimit
+	}
+
+	if c.Redis.MaxRetries == 0 {
+		c.Redis.MaxRetries = DefaultMaxRetries
 	}
 
 	if c.Redis.DB == 0 {
