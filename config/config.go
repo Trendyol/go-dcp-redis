@@ -12,7 +12,7 @@ const (
 	DefaultBatchTickerDuration = 10 * time.Second
 	DefaultBatchSizeLimit      = 1000
 	DefaultBatchByteSizeLimit  = 10 * 1024 * 1024
-	DefaultMaxRetries          = 10
+	DefaultMaxRetries          = 30
 )
 
 type Redis struct {

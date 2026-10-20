@@ -19,7 +19,13 @@ import (
 // retryableErrorPrefixes are Redis error codes that describe a temporary condition of the
 // server (memory back-pressure, loading, failover, cluster resharding), not a bad command.
 var retryableErrorPrefixes = []string{
-	"OOM", "BUSY", "LOADING", "TRYAGAIN", "CLUSTERDOWN", "MASTERDOWN", "READONLY",
+	"OOM", "BUSY", "LOADING", "TRYAGAIN", "CLUSTERDOWN", "MASTERDOWN", "READONLY", "MOVED", "ASK",
+}
+
+// clusterReloadErrorPrefixes are Redis error codes that indicate cluster slot ownership or
+// node role/availability may have changed and cached cluster state should be reloaded.
+var clusterReloadErrorPrefixes = []string{
+	"LOADING", "CLUSTERDOWN", "MASTERDOWN", "READONLY", "MOVED", "ASK",
 }
 
 // flushBatch writes one batch: one pipeline per Redis client, clients in parallel. Commands
@@ -104,6 +110,7 @@ func (b *Bulk) execute(c client.RedisClient, cmds []*redis.Command) error {
 
 		var firstErr error
 		failed := 0
+		reloadCluster := false
 		for i, err := range errs {
 			if err == nil {
 				continue
@@ -114,6 +121,9 @@ func (b *Bulk) execute(c client.RedisClient, cmds []*redis.Command) error {
 			if firstErr == nil {
 				firstErr = fmt.Errorf("%s %q: %w", cmds[i].Operation, cmds[i].Key, err)
 			}
+			if needsClusterStateReload(err) {
+				reloadCluster = true
+			}
 			failed++
 		}
 		if failed == 0 {
@@ -123,13 +133,26 @@ func (b *Bulk) execute(c client.RedisClient, cmds []*redis.Command) error {
 			return fmt.Errorf("giving up after %d retries: %w", attempt, firstErr)
 		}
 
+		if reloadCluster {
+			reloadClusterState(b.ctx, c)
+		}
+
 		cmds = retrySet(cmds, errs)
 		b.retriedCommands.Add(int64(len(cmds)))
 		logger.Log.Warn("retrying %d redis commands (%d failed, attempt %d/%d) in %v, err: %v",
 			len(cmds), failed, attempt+1, b.maxRetries, backoff, firstErr)
 		time.Sleep(backoff)
-		backoff = min(backoff*2, b.retryMaxBackoff)
+		backoff = nextBackoff(backoff, b.retryMaxBackoff, !reloadCluster)
 	}
+}
+
+// nextBackoff doubles the backoff up to maxBackoff. Pure back-pressure errors are capped
+// lower so a write resumes quickly once the server frees memory.
+func nextBackoff(cur, maxBackoff time.Duration, backpressureOnly bool) time.Duration {
+	if backpressureOnly && maxBackoff > defaultRetryBackpressureMaxCap {
+		maxBackoff = defaultRetryBackpressureMaxCap
+	}
+	return min(cur*2, maxBackoff)
 }
 
 // retrySet returns the failed commands plus every later command of a key that has a failed
@@ -243,22 +266,60 @@ func isRetryableError(err error) bool {
 	if err == nil || errors.Is(err, goredis.ErrClosed) || errors.Is(err, context.Canceled) {
 		return false
 	}
+	if isTransientConnOrTimeoutError(err) {
+		return true
+	}
+	return hasRedisErrorPrefix(err, retryableErrorPrefixes)
+}
+
+func needsClusterStateReload(err error) bool {
+	if err == nil || errors.Is(err, goredis.ErrClosed) || errors.Is(err, context.Canceled) {
+		return false
+	}
+	if isTransientConnOrTimeoutError(err) {
+		return true
+	}
+	return hasRedisErrorPrefix(err, clusterReloadErrorPrefixes)
+}
+
+func isTransientConnOrTimeoutError(err error) bool {
 	if errors.Is(err, context.DeadlineExceeded) || errors.Is(err, io.EOF) ||
 		errors.Is(err, io.ErrUnexpectedEOF) || errors.Is(err, goredis.ErrPoolTimeout) {
 		return true
 	}
 	var netErr net.Error
-	if errors.As(err, &netErr) {
-		return true
-	}
+	return errors.As(err, &netErr)
+}
+
+func hasRedisErrorPrefix(err error, prefixes []string) bool {
 	var redisErr goredis.Error
-	if errors.As(err, &redisErr) {
-		msg := redisErr.Error()
-		for _, prefix := range retryableErrorPrefixes {
-			if msg == prefix || strings.HasPrefix(msg, prefix+" ") {
-				return true
-			}
+	if !errors.As(err, &redisErr) {
+		return false
+	}
+	msg := redisErr.Error()
+	for _, prefix := range prefixes {
+		if msg == prefix || strings.HasPrefix(msg, prefix+" ") {
+			return true
 		}
 	}
 	return false
+}
+
+// reloadClusterState forces a Redis Cluster client to refresh its cached slot-to-node map
+// before retrying after a failover, topology change, or node connection failure.
+func reloadClusterState(ctx context.Context, c client.RedisClient) {
+	if r, ok := c.(interface {
+		ReloadState(ctx context.Context)
+	}); ok {
+		r.ReloadState(ctx)
+	}
+	if m, ok := c.(interface {
+		ForEachMaster(ctx context.Context, fn func(ctx context.Context, client *goredis.Client) error) error
+	}); ok {
+		reloadCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
+		defer cancel()
+		_ = m.ForEachMaster(reloadCtx, func(context.Context, *goredis.Client) error {
+			return nil
+		})
+	}
 }

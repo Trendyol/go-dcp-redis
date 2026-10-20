@@ -254,7 +254,7 @@ Check out on [go-dcp](https://github.com/Trendyol/go-dcp#configuration)
 | `redis.batchTickerDuration`  | time.Duration          | no       | 10s     | Checkpoint commit interval. The commit waits until every acknowledged event is written to Redis    |
 | `redis.batchSizeLimit`       | int                    | no       | 1000    | Maximum number of commands in one pipeline; the DCP listener waits while the pending batch is full |
 | `redis.batchByteSizeLimit`   | int, string            | no       | 10mb    | Maximum estimated payload of one pipeline, as bytes (`10485760`) or a size string (`10mb`)         |
-| `redis.maxRetries`           | int                    | no       | 10      | Retries of a command that failed with a transient error (backoff 100ms..3s); `-1` disables retries |
+| `redis.maxRetries`           | int                    | no       | 30      | Retries of a command that failed with a transient error; `-1` disables retries. Backoff starts at 5ms and doubles, capped at 1s for back-pressure errors (`OOM`, `BUSY`, `TRYAGAIN`, ~23s total) and 3s for failover / topology / network errors (~65s total, cluster slot map is reloaded before each retry) |
 | `redis.collectionKeyMapping` | []CollectionKeyMapping | no       |         | Will be used for default mapper. Please read the next topic.                                       |
 | `redis.sentinel`             | RedisSentinel          | no       |         | Redis Sentinel configuration for high availability                                                 |
 | `redis.cluster`              | RedisCluster           | no       |         | Redis Cluster configuration for horizontal scaling                                                 |
