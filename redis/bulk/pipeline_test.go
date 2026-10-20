@@ -32,10 +32,10 @@ func TestMain(m *testing.M) {
 type fakeHyrat struct {
 	values  map[string]string
 	fail    func(key, value string) string
-	delay   time.Duration
 	order   []string
-	mu      sync.Mutex
+	delay   time.Duration
 	callsAt atomic.Int64
+	mu      sync.Mutex
 }
 
 func newFakeHyrat(t *testing.T, m *miniredis.Miniredis) *fakeHyrat {

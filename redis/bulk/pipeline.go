@@ -1,8 +1,6 @@
 package bulk
 
 import (
-	"os"
-	"sync/atomic"
 	"context"
 	"errors"
 	"fmt"
@@ -40,8 +38,6 @@ func (b *Bulk) flushBatch(batch []item) error {
 		err = b.executeGroups(groups)
 	}
 
-	dbgN.Add(1); dbgCmds.Add(int64(len(batch))); dbgNs.Add(int64(time.Since(startedTime)))
-	if dbgN.Load()%200 == 0 { fmt.Fprintf(os.Stderr, "DBG flushes=%d avgBatch=%.1f avgFlushUs=%.0f\n", dbgN.Load(), float64(dbgCmds.Load())/float64(dbgN.Load()), float64(dbgNs.Load())/float64(dbgN.Load())/1000) }
 	b.bulkRequestProcessLatencyMs.Store(time.Since(startedTime).Milliseconds())
 	b.bulkRequestSize.Store(int64(len(batch)))
 	return err
@@ -266,5 +262,3 @@ func isRetryableError(err error) bool {
 	}
 	return false
 }
-
-var dbgN, dbgCmds, dbgNs atomic.Int64

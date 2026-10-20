@@ -115,8 +115,8 @@ func TestRedisValidate(t *testing.T) {
 
 	tests := []struct {
 		name    string
-		redis   Redis
 		wantErr string
+		redis   Redis
 	}{
 		{
 			name:  "no targets",

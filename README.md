@@ -8,7 +8,11 @@ Redis in near real-time.
 - Custom Redis commands **per** DCP event.
 - **Multiple Redis operations** for a DCP event(see [Example](#example)).
 - Handling different DCP events such as **expiration, deletion and mutation**(see [Example](#example)).
-- **Managing batch configurations** such as batch ticker durations.
+- **Pipelined, batched writes**: DCP events are buffered and sent to Redis as pipelines (one per Redis
+  instance), so throughput is not bound to one Redis round trip per event. Order is preserved per key.
+- **Retries transient Redis errors** (`OOM`, `BUSY`, `LOADING`, `TRYAGAIN`, `CLUSTERDOWN`, `MASTERDOWN`,
+  `READONLY`, network errors) with backoff instead of crashing the connector.
+- **Managing batch configurations** such as batch size, batch byte size and checkpoint commit interval.
 - **Multiple storage types** (string, hash, json) with TTL support.
 - **Redis Sentinel support** for high availability deployments.
 - **Redis Cluster support** for horizontal scaling and high availability.
@@ -110,6 +114,36 @@ func rawMapper(event couchbase.Context) []redis.Model {
   }
 }
 ```
+
+`redis.Raw` can send any command, including module commands such as `HYRAT.SET` or `JSON.SET`, and it is
+pipelined like every other model. A Raw command is sent as `<Operation> <Key> <Args...>`; `Value` and `TTL`
+are only used when `Operation` is `SET` (`SET Key Value` with `TTL` as expiry) or `HSET` (`HSET Key Args[0] Args[1]`
+followed by `EXPIRE Key TTL`). `DEL` and `HDEL` use `Key` and `Args[0]`. A nil reply (for example from a
+command with `NX`/`XX`) is not an error.
+
+```go
+func hyratMapper(event couchbase.Context) []redis.Model {
+  return []redis.Model{
+    &redis.Raw{
+      Operation: "HYRAT.SET",
+      Key:       string(event.Event.Key),
+      Args:      []interface{}{string(event.Event.Value)},
+    },
+  }
+}
+```
+
+### How Writes Are Batched
+
+The DCP listener only appends the commands returned by the mapper to a pending batch and acknowledges the
+event. A background flusher sends everything that is pending as one pipeline per Redis instance while new
+events keep accumulating, so batches grow with the load (up to `batchSizeLimit` commands or
+`batchByteSizeLimit` bytes) and an event is written as soon as the previous pipeline completes. When the
+pending batch is full the listener waits, which applies back-pressure to the DCP stream.
+
+The checkpoint is committed every `batchTickerDuration`, and also before the streams stop for a rebalance or
+shutdown, but only after every acknowledged event has been written to Redis. After a crash the connector
+replays events from the last checkpoint (at-least-once), so mapper commands should be idempotent, as before.
 
 ## Configuration Examples
 
@@ -217,7 +251,10 @@ Check out on [go-dcp](https://github.com/Trendyol/go-dcp#configuration)
 | `redis.password`             | string                 | no       |         | Redis password                                                                                     |
 | `redis.db`                   | int                    | no       | 0       | Redis database number                                                                              |
 | `redis.defaultTTL`           | time.Duration          | no       |         | Default TTL for keys                                                                               |
-| `redis.batchTickerDuration`  | time.Duration          | no       | 10s     | Batch is being flushed automatically at specific time intervals for long waiting messages in batch |
+| `redis.batchTickerDuration`  | time.Duration          | no       | 10s     | Checkpoint commit interval. The commit waits until every acknowledged event is written to Redis    |
+| `redis.batchSizeLimit`       | int                    | no       | 1000    | Maximum number of commands in one pipeline; the DCP listener waits while the pending batch is full |
+| `redis.batchByteSizeLimit`   | int, string            | no       | 10mb    | Maximum estimated payload of one pipeline, as bytes (`10485760`) or a size string (`10mb`)         |
+| `redis.maxRetries`           | int                    | no       | 10      | Retries of a command that failed with a transient error (backoff 100ms..3s); `-1` disables retries |
 | `redis.collectionKeyMapping` | []CollectionKeyMapping | no       |         | Will be used for default mapper. Please read the next topic.                                       |
 | `redis.sentinel`             | RedisSentinel          | no       |         | Redis Sentinel configuration for high availability                                                 |
 | `redis.cluster`              | RedisCluster           | no       |         | Redis Cluster configuration for horizontal scaling                                                 |
@@ -277,6 +314,8 @@ Collection key mapping configuration is optional. The default mapper needs an en
 | ----------------------------------------------- | ----------------------------- | ------ | ---------- |
 | redis_connector_latency_ms                      | Time to adding to the batch.  | N/A    | Gauge      |
 | redis_connector_bulk_request_process_latency_ms | Time to process bulk request. | N/A    | Gauge      |
+| redis_connector_bulk_request_size               | Number of commands in the last pipeline sent to Redis. | N/A    | Gauge      |
+| redis_connector_retried_commands_total          | Total number of Redis commands re-sent after a transient error. | N/A    | Counter    |
 
 You can also use all DCP-related metrics explained [here](https://github.com/Trendyol/go-dcp#exposed-metrics).
 All DCP-related metrics are automatically injected. It means you don't need to do anything.

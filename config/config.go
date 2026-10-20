@@ -16,26 +16,20 @@ const (
 )
 
 type Redis struct {
-	Host                 string                   `yaml:"host"`
-	Port                 uint16                   `yaml:"port"`
-	Username             string                   `yaml:"username"`
+	BatchByteSizeLimit   any                      `yaml:"batchByteSizeLimit"`
+	Sentinel             *RedisSentinel           `yaml:"sentinel,omitempty"`
+	Instances            map[string]RedisInstance `yaml:"instances,omitempty"`
+	Cluster              *RedisCluster            `yaml:"cluster,omitempty"`
 	Password             string                   `yaml:"password"`
-	DB                   int                      `yaml:"db"`
+	Host                 string                   `yaml:"host"`
+	Username             string                   `yaml:"username"`
 	CollectionKeyMapping []CollectionKeyMapping   `yaml:"collectionKeyMapping,omitempty"`
 	BatchTickerDuration  time.Duration            `yaml:"batchTickerDuration"`
 	DefaultTTL           time.Duration            `yaml:"defaultTTL"`
-	Sentinel             *RedisSentinel           `yaml:"sentinel,omitempty"`
-	Cluster              *RedisCluster            `yaml:"cluster,omitempty"`
-	Instances            map[string]RedisInstance `yaml:"instances,omitempty"`
-	// BatchSizeLimit is the maximum number of commands sent to Redis in one pipeline.
-	BatchSizeLimit int `yaml:"batchSizeLimit"`
-	// BatchByteSizeLimit is the maximum estimated payload of one pipeline. It accepts a byte
-	// count (10485760) or a size string ("10mb").
-	BatchByteSizeLimit any `yaml:"batchByteSizeLimit"`
-	// MaxRetries is how many times a command that failed with a transient error (OOM, BUSY,
-	// LOADING, TRYAGAIN, CLUSTERDOWN, MASTERDOWN, READONLY or a network error) is retried
-	// before the connector gives up. A negative value disables retries.
-	MaxRetries int `yaml:"maxRetries"`
+	DB                   int                      `yaml:"db"`
+	BatchSizeLimit       int                      `yaml:"batchSizeLimit"`
+	MaxRetries           int                      `yaml:"maxRetries"`
+	Port                 uint16                   `yaml:"port"`
 }
 
 // BatchByteSizeLimitBytes returns BatchByteSizeLimit in bytes, falling back to the default.
@@ -51,13 +45,13 @@ func (r *Redis) BatchByteSizeLimitBytes() int {
 
 // RedisInstance is the connection config of one Redis (standalone, sentinel or cluster).
 type RedisInstance struct {
+	Sentinel *RedisSentinel `yaml:"sentinel,omitempty"`
+	Cluster  *RedisCluster  `yaml:"cluster,omitempty"`
 	Host     string         `yaml:"host"`
-	Port     uint16         `yaml:"port"`
 	Username string         `yaml:"username"`
 	Password string         `yaml:"password"`
 	DB       int            `yaml:"db"`
-	Sentinel *RedisSentinel `yaml:"sentinel,omitempty"`
-	Cluster  *RedisCluster  `yaml:"cluster,omitempty"`
+	Port     uint16         `yaml:"port"`
 }
 
 // DefaultInstance returns the top-level redis block as an instance.
@@ -99,15 +93,15 @@ func (i RedisInstance) hasAddress() bool {
 
 type RedisSentinel struct {
 	MasterName    string   `yaml:"masterName"`
-	SentinelAddrs []string `yaml:"sentinelAddrs"`
 	Username      string   `yaml:"username,omitempty"`
 	Password      string   `yaml:"password,omitempty"`
+	SentinelAddrs []string `yaml:"sentinelAddrs"`
 }
 
 type RedisCluster struct {
-	Addrs          []string `yaml:"addrs"`
 	Username       string   `yaml:"username,omitempty"`
 	Password       string   `yaml:"password,omitempty"`
+	Addrs          []string `yaml:"addrs"`
 	RouteByLatency bool     `yaml:"routeByLatency,omitempty"`
 	RouteRandomly  bool     `yaml:"routeRandomly,omitempty"`
 	ReadOnly       bool     `yaml:"readOnly,omitempty"`
@@ -117,10 +111,10 @@ type CollectionKeyMapping struct {
 	Collection  string        `yaml:"collection"`
 	KeyPrefix   string        `yaml:"keyPrefix"`
 	KeySuffix   string        `yaml:"keySuffix"`
-	StorageType string        `yaml:"storageType"` // "string", "hash", "json"
-	TTL         time.Duration `yaml:"ttl"`
+	StorageType string        `yaml:"storageType"`
 	HashField   string        `yaml:"hashField,omitempty"`
-	Target      string        `yaml:"target,omitempty"` // redis.instances name, empty means default
+	Target      string        `yaml:"target,omitempty"`
+	TTL         time.Duration `yaml:"ttl"`
 }
 
 type Connector struct {

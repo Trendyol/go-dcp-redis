@@ -7,16 +7,16 @@ type Model interface {
 }
 
 type Command struct {
+	Value     interface{}
 	Operation string
 	Key       string
-	Value     interface{}
-	TTL       time.Duration
 	Args      []interface{}
+	TTL       time.Duration
 }
 
 type Set struct {
-	Key   string
 	Value interface{}
+	Key   string
 	TTL   time.Duration
 }
 
@@ -41,9 +41,9 @@ func (d *Del) Convert() *Command {
 }
 
 type HSet struct {
+	Value interface{}
 	Key   string
 	Field string
-	Value interface{}
 	TTL   time.Duration
 }
 
@@ -70,11 +70,11 @@ func (h *HDel) Convert() *Command {
 }
 
 type Raw struct {
+	Value     interface{}
 	Operation string
 	Key       string
-	Value     interface{}
-	TTL       time.Duration
 	Args      []interface{}
+	TTL       time.Duration
 }
 
 func (r *Raw) Convert() *Command {

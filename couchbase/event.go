@@ -20,10 +20,10 @@ type Event struct {
 }
 
 type EventParams struct {
+	EventTime      time.Time
+	CollectionName string
 	Key            []byte
 	Value          []byte
-	CollectionName string
-	EventTime      time.Time
 	Cas            uint64
 	VbID           uint16
 }
