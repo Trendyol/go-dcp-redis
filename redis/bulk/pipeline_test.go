@@ -464,6 +464,8 @@ func TestIsRetryableError(t *testing.T) {
 		{name: "tryagain", err: redisErr("TRYAGAIN Multiple keys request during rehashing of slot"), want: true},
 		{name: "clusterdown", err: redisErr("CLUSTERDOWN The cluster is down"), want: true},
 		{name: "readonly", err: redisErr("READONLY You can't write against a read only replica."), want: true},
+		{name: "moved", err: redisErr("MOVED 3999 127.0.0.1:6381"), want: true},
+		{name: "ask", err: redisErr("ASK 3999 127.0.0.1:6381"), want: true},
 		{name: "eof", err: io.EOF, want: true},
 		{name: "deadline", err: context.DeadlineExceeded, want: true},
 		{name: "busygroup is not busy", err: redisErr("BUSYGROUP Consumer Group name already exists"), want: false},
@@ -507,5 +509,82 @@ func TestIsClusterClient(t *testing.T) {
 	}
 	if isClusterClient(standalone) {
 		t.Error("standalone client detected as cluster")
+	}
+}
+
+type reloadSpyClient struct {
+	client.RedisClient
+	reloads atomic.Int64
+}
+
+func (r *reloadSpyClient) ReloadState(context.Context) {
+	r.reloads.Add(1)
+}
+
+func TestClusterStateReloadOnFailoverError(t *testing.T) {
+	m := miniredis.RunT(t)
+	hyrat := newFakeHyrat(t, m)
+	spy := &reloadSpyClient{RedisClient: goredis.NewClient(&goredis.Options{Addr: m.Addr()})}
+	defer spy.Close()
+
+	b := newBulk(config.Redis{MaxRetries: 5}, spy, nil, nil)
+	b.retryMinBackoff = time.Millisecond
+	b.retryMaxBackoff = 5 * time.Millisecond
+
+	var attempts atomic.Int64
+	hyrat.fail = func(string, string) string {
+		if attempts.Add(1) == 1 {
+			return "OOM hyrat mutation memory limit reached"
+		}
+		return ""
+	}
+	if err := b.execute(spy, []*redis.Command{hyratSet("k1", "v1").Convert()}); err != nil {
+		t.Fatalf("execute failed on OOM retry: %v", err)
+	}
+	if got := spy.reloads.Load(); got != 0 {
+		t.Fatalf("ReloadState called %d times on OOM back-pressure, want 0", got)
+	}
+
+	attempts.Store(0)
+	hyrat.fail = func(string, string) string {
+		if attempts.Add(1) == 1 {
+			return "READONLY You can't write against a read only replica."
+		}
+		return ""
+	}
+	if err := b.execute(spy, []*redis.Command{hyratSet("k2", "v2").Convert()}); err != nil {
+		t.Fatalf("execute failed on READONLY retry: %v", err)
+	}
+	if got := spy.reloads.Load(); got != 1 {
+		t.Fatalf("ReloadState called %d times on READONLY failover error, want 1", got)
+	}
+}
+
+// retryBudget sums the sleeps of maxRetries retries starting at the default min backoff.
+func retryBudget(maxRetries int, backpressureOnly bool) time.Duration {
+	total := time.Duration(0)
+	backoff := defaultRetryMinBackoff
+	for i := 0; i < maxRetries; i++ {
+		total += backoff
+		backoff = nextBackoff(backoff, defaultRetryMaxBackoff, backpressureOnly)
+	}
+	return total
+}
+
+func TestDefaultRetryBudget(t *testing.T) {
+	// Sustained OOM / BUSY back-pressure must not crash the connector sooner than the old
+	// defaults did (10 retries, 100ms..3s backoff = ~18s).
+	if got := retryBudget(config.DefaultMaxRetries, true); got < 20*time.Second {
+		t.Errorf("back-pressure retry budget = %v, want >= 20s", got)
+	}
+	// A Redis Cluster failover (node timeout + election) must be survivable.
+	if got := retryBudget(config.DefaultMaxRetries, false); got < 60*time.Second {
+		t.Errorf("failover retry budget = %v, want >= 60s", got)
+	}
+	if got := nextBackoff(800*time.Millisecond, defaultRetryMaxBackoff, true); got != time.Second {
+		t.Errorf("back-pressure backoff = %v, want capped at 1s", got)
+	}
+	if got := nextBackoff(2*time.Second, defaultRetryMaxBackoff, false); got != defaultRetryMaxBackoff {
+		t.Errorf("failover backoff = %v, want capped at %v", got, defaultRetryMaxBackoff)
 	}
 }

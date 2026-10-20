@@ -15,8 +15,12 @@ import (
 )
 
 const (
-	defaultRetryMinBackoff = 100 * time.Millisecond
-	defaultRetryMaxBackoff = 3 * time.Second
+	defaultRetryMinBackoff = 5 * time.Millisecond
+	// defaultRetryBackpressureMaxCap caps the backoff of pure server back-pressure errors
+	// (OOM, BUSY, TRYAGAIN) so a write resumes quickly once memory is freed. With the default
+	// 30 retries this still tolerates ~23s of continuous back-pressure.
+	defaultRetryBackpressureMaxCap = time.Second
+	defaultRetryMaxBackoff         = 3 * time.Second
 )
 
 // Bulk buffers the commands produced by the mapper and writes them to Redis in pipelines.
