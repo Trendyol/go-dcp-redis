@@ -24,5 +24,9 @@ compose:
 
 tidy:
 	go mod tidy
+	cd example/cluster && go mod tidy && cd ../..
+	cd example/default-mapper && go mod tidy && cd ../..
+	cd example/multi-instance && go mod tidy && cd ../..
+	cd example/sentinel && go mod tidy && cd ../..
 	cd example/simple && go mod tidy && cd ../..
 	cd test/integration && go mod tidy && cd ../..

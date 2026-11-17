@@ -7,7 +7,7 @@ toolchain go1.24.5
 replace github.com/Trendyol/go-dcp-redis => ../../.
 
 require (
-	github.com/Trendyol/go-dcp v1.3.7
+	github.com/Trendyol/go-dcp v1.3.9
 	github.com/Trendyol/go-dcp-redis v0.0.0
 )
 
@@ -67,7 +67,7 @@ require (
 	github.com/prometheus/procfs v0.17.0 // indirect
 	github.com/redis/go-redis/v9 v9.14.0 // indirect
 	github.com/rivo/uniseg v0.4.7 // indirect
-	github.com/sirupsen/logrus v1.9.4 // indirect
+	github.com/rs/zerolog v1.35.1 // indirect
 	github.com/twitchyliquid64/golang-asm v0.15.1 // indirect
 	github.com/valyala/bytebufferpool v1.0.0 // indirect
 	github.com/valyala/fasthttp v1.69.0 // indirect
