@@ -102,13 +102,13 @@ func newSentinelClient(cfg config.RedisInstance) RedisClient {
 
 	// Use Redis config credentials if Sentinel specific ones are not provided
 	if cfg.Sentinel.Username != "" {
-		options.Username = cfg.Sentinel.Username
+		options.SentinelUsername = cfg.Sentinel.Username
 	} else if cfg.Username != "" {
 		options.Username = cfg.Username
 	}
 
 	if cfg.Sentinel.Password != "" {
-		options.Password = cfg.Sentinel.Password
+		options.SentinelPassword = cfg.Sentinel.Password
 	} else if cfg.Password != "" {
 		options.Password = cfg.Password
 	}

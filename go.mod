@@ -5,12 +5,12 @@ go 1.24.0
 toolchain go1.24.5
 
 require (
-	github.com/Trendyol/go-dcp v1.3.7
+	github.com/Trendyol/go-dcp v1.3.9
 	github.com/alicebob/miniredis/v2 v2.40.0
 	github.com/json-iterator/go v1.1.12
 	github.com/prometheus/client_golang v1.23.2
 	github.com/redis/go-redis/v9 v9.14.0
-	github.com/sirupsen/logrus v1.9.4
+	github.com/rs/zerolog v1.35.1
 	gopkg.in/yaml.v3 v3.0.1
 )
 
